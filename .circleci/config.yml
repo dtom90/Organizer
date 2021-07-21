@@ -1,0 +1,95 @@
+version: 2
+
+jobs:
+  test-basic:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - setup_remote_docker:
+          version: 20.10.6
+          docker_layer_caching: true
+      - checkout
+      - run:
+          name: Run packages audit, lint, and unit tests
+          command: ./docker/test_basic.sh
+  test-e2e:
+    docker:
+      - image: cimg/base:stable
+    steps:
+      - setup_remote_docker:
+          version: 20.10.6
+          docker_layer_caching: true
+      - checkout
+      - run:
+          name: Build & run production Docker image
+          command: ./docker/prod.sh -d
+      - run:
+          name: Run browser tests against production container
+          command: ./docker/test_e2e.sh
+      - run:
+          name: Stop production Docker contianer
+          command: docker stop devtrack-prod
+
+  build-web:
+    docker:
+      - image: cimg/node:lts
+    steps:
+      - setup_remote_docker:
+          version: 20.10.6
+          docker_layer_caching: true
+      - add_ssh_keys:
+          fingerprints:
+            - "27:7d:a1:a0:dc:5a:30:f1:47:74:a6:50:af:6e:59:2d"
+      - checkout
+      - run:
+          name: Build GitHub Pages
+          command: ./docker/gh-pages.sh
+      - run:
+          name: Publish to GitHub Pages
+          command: |
+            npm install gh-pages@3.0.0
+            git config user.email "dtom90@users.noreply.github.com"
+            git config user.name "David Thomason"
+            ./node_modules/.bin/gh-pages --dist dist_web --dotfiles --no-history --message "GitHub Pages"
+
+  build-electron:
+    macos:
+      xcode: 11.5.0
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: yarn
+      - run:
+          name: Build and release publish Electron app
+          command: yarn run electron:release
+
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - test-basic:
+          filters:
+            branches:
+              ignore:
+                - master
+                - gh-pages
+      - test-e2e:
+          filters:
+            branches:
+              ignore:
+                - master
+                - gh-pages
+  build-deploy:
+    jobs:
+      - build-web:
+          filters:
+            branches:
+              only:
+                - master
+      - build-electron:
+          filters:
+            branches:
+              only:
+                - master
